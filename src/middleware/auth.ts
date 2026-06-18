@@ -43,10 +43,10 @@ declare module 'express-serve-static-core' {
   }
 }
 
-export function requireAuth(req: Request, res: Response, next: NextFunction) {
+export function requireAuth(req: Request, _res: Response, next: NextFunction) {
   const id = extractIdentity(req);
   if (!id.userId && !id.email) {
-    return res.status(401).json({ error: 'Não autenticado' });
+    return next(unauthorized());
   }
   req.identity = id;
   next();
