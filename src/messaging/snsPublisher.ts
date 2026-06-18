@@ -1,6 +1,6 @@
 import { PublishCommand, SNSClient } from '@aws-sdk/client-sns';
 import { env } from '../config/env';
-import { MessagePublisher } from './publisher';
+import { MessagePublisher, NoopPublisher } from './publisher';
 
 export class SnsPublisher implements MessagePublisher {
   private client: SNSClient;
@@ -25,7 +25,5 @@ export function buildPublisher(): MessagePublisher {
     return new SnsPublisher(env.events.snsTopicArn);
   }
   // disabled or unconfigured → noop
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
-  const { NoopPublisher } = require('./publisher');
   return new NoopPublisher();
 }
