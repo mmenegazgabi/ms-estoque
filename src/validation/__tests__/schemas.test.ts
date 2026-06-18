@@ -1,4 +1,4 @@
-import { createSupplierSchema, listSuppliersQuerySchema, createReplenishmentSchema } from '../schemas';
+import { createSupplierSchema, listSuppliersQuerySchema, createReplenishmentSchema, updateSupplierSchema, linkProductSchema } from '../schemas';
 
 describe('schemas', () => {
   it('accepts a valid supplier and infers documentType', () => {
@@ -32,5 +32,21 @@ describe('schemas', () => {
 
   it('requires at least one replenishment item', () => {
     expect(() => createReplenishmentSchema.parse({ items: [] })).toThrow();
+  });
+
+  it('updateSupplierSchema accepts a partial update with status inactive', () => {
+    expect(updateSupplierSchema.parse({ status: 'inactive' }).status).toBe('inactive');
+  });
+
+  it('updateSupplierSchema accepts an empty object (all fields optional)', () => {
+    expect(() => updateSupplierSchema.parse({})).not.toThrow();
+  });
+
+  it('linkProductSchema rejects a negative supplyPrice', () => {
+    expect(() => linkProductSchema.parse({ productId: 'p1', supplyPrice: -1 })).toThrow();
+  });
+
+  it('linkProductSchema accepts a minimal valid payload', () => {
+    expect(linkProductSchema.parse({ productId: 'p1' }).productId).toBe('p1');
   });
 });
