@@ -27,6 +27,8 @@ jobs:
       DB_PASSWORD: chave_secret
       DB_NAME: chave_supplier_test
       JWT_SECRET: test-secret
+      # node-pg-migrate conecta via DATABASE_URL (não pelas DB_*); sem isto o migrate:up falha.
+      DATABASE_URL: postgres://chave:chave_secret@localhost:5432/chave_supplier_test
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
