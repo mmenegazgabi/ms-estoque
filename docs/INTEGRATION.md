@@ -19,6 +19,14 @@ T2-ESII/
 └── chave-mfe-supplier/   (novo)
 ```
 
+> **Atenção (boilerplate):** o `docker-compose.yml` referencia o contexto de build
+> `../chave-mfe-auth`, mas o repositório do MFE de auth de referência se chama
+> `chave-mfe-auth-g7`. Crie um symlink para o build encontrar o caminho:
+>
+> ```bash
+> ln -sfn chave-mfe-auth-g7 chave-mfe-auth   # rodar na raiz T2-ESII/
+> ```
+
 ---
 
 ## 1. `chave-infra/docker-compose.yml`
@@ -87,6 +95,15 @@ T2-ESII/
 ```
 
 > A imagem roda `npm run migrate:up` no boot (ver Dockerfile do MS) e então inicia o app.
+>
+> **Requisitos do Dockerfile para o boot funcionar** (validados na verificação E2E):
+> - O estágio de runtime precisa do **`node_modules` completo** do estágio de build — as
+>   migrations são `.ts` (`node-pg-migrate -j ts`), então `ts-node`/`typescript` e o binário
+>   `node-pg-migrate` (com seu symlink em `.bin/`) têm que estar presentes. Copiar só o
+>   pacote `node-pg-migrate` causa `sh: node-pg-migrate: not found` em loop de restart.
+> - O `node-pg-migrate` conecta via **`DATABASE_URL`**, não pelas `DB_*` da app. O CMD monta
+>   `DATABASE_URL` a partir das `DB_*` antes de migrar; sem isso a migração vai para
+>   `127.0.0.1:5432` e falha com `ECONNREFUSED`.
 
 ### 1.4 Microfrontend
 
@@ -196,9 +213,41 @@ ARG MFE_SUPPLIER_URL=http://localhost:4002/assets/remoteEntry.js
 ENV MFE_SUPPLIER_URL=$MFE_SUPPLIER_URL
 ```
 
+### 4.4 Limitação conhecida — React duplicado no shell
+
+O shell consome o `SupplierApp` como remote e o renderiza **dentro da própria árvore React**.
+Como o `@originjs/vite-plugin-federation` (com `shared: ["react", "react-dom"]`) **não
+deduplica o React de forma confiável**, os componentes do MFE (ex.: MUI DataGrid) acabam
+chamando hooks de **outra** instância de React, e a rota `/suppliers` no **shell (`:3000`)**
+quebra com `Cannot read properties of null (reading 'useSyncExternalStore')`.
+
+> Tentou-se declarar `react`/`react-dom` como `singleton` no `shared` dos três `vite.config`,
+> mas **não resolveu** (limitação do plugin) — por isso a alteração foi revertida.
+>
+> **O MFE standalone em `http://localhost:4002` funciona 100%** (uma única instância de React).
+> Para testar/demonstrar a UI dos fornecedores, usar o standalone. Resolver no shell exigiria
+> um import map de React único (externalizar `react`/`react-dom` e servi-los uma vez só) ou
+> trocar o plugin de Module Federation.
+
 ---
 
-## 5. Subindo o stack completo
+## 5. CORS no microsserviço
+
+O MFE roda em outra origem (browser) e chama a API em `:3002`, então o navegador aplica CORS.
+Sem os headers a UI falha com **"Failed to fetch"** (visível só no browser; `curl` não aplica
+CORS). Em `chave-ms-supplier/src/app.ts` há um middleware que responde:
+
+```
+Access-Control-Allow-Origin: *            (override por CORS_ORIGIN)
+Access-Control-Allow-Methods: GET,POST,PUT,PATCH,DELETE,OPTIONS
+Access-Control-Allow-Headers: Content-Type, Authorization
+```
+
+Wildcard é seguro aqui porque a autenticação vai no header `Authorization` (sem cookies).
+
+---
+
+## 6. Subindo o stack completo
 
 ```bash
 cd chave-infra
@@ -206,27 +255,43 @@ cp -n .env.example .env
 make setup            # Ministack healthy → terraform apply → containers up
 ```
 
+> **Notas de bring-up (verificação E2E):**
+> - Se um container `ministack` ou `infra-provisioner` de uma execução anterior tiver subido
+>   sozinho (política `restart`), remova-o antes (`docker rm -f ministack infra-provisioner`)
+>   para evitar conflito de nome.
+> - O `make setup` provisiona o Terraform **duas vezes** (host + container `infra-provisioner`)
+>   contra o mesmo Ministack; em um ambiente já provisionado isso colide (recursos já existem).
+>   Para um start limpo: `docker compose down -v && docker compose up -d` (deixa só o
+>   `infra-provisioner` provisionar contra um Ministack zerado).
+
 URLs após o setup:
 
 | Serviço | URL |
 |---|---|
 | Supplier API (Swagger) | http://localhost:3002/docs |
 | Supplier API (health) | http://localhost:3002/health |
-| MFE Supplier (standalone) | http://localhost:4002 |
-| Shell (rota de fornecedores) | http://localhost:3000/suppliers |
+| **MFE Supplier (standalone)** | **http://localhost:4002** ← UI funcional |
+| Shell (rota de fornecedores) | http://localhost:3000/suppliers ⚠️ ver limitação 4.4 |
 | Gateway URL | impresso como output `gateway_url` do terraform |
 
 Smoke test rápido:
 
 ```bash
 curl -s localhost:3002/health
-# obtenha um token via MS Auth (porta 3001) e:
+# o token: o login do chave-ms-auth de referência não funciona neste ambiente
+# (chama /api/auth/login, sem tabela users/seed). Para testar, gere um JWT assinado
+# com o JWT_SECRET compartilhado (default: change-me-in-production):
+TOKEN=$(node -e "console.log(require('jsonwebtoken').sign({sub:'00000000-0000-0000-0000-000000000000',email:'admin@dev',roles:['admin']},'change-me-in-production',{expiresIn:'8h'}))")
 curl -s localhost:3002/suppliers -H "Authorization: Bearer $TOKEN"
 ```
 
+> Para usar pela **UI**, abra o standalone `http://localhost:4002`, cole o token no
+> `localStorage` (`localStorage.setItem('token','<JWT>')`) e recarregue. Há ainda um script
+> `chave-ms-supplier/testar-tudo.sh` que exercita os 11 fluxos da API de ponta a ponta.
+
 ---
 
-## 6. Segredos de CI/CD (placeholders)
+## 7. Segredos de CI/CD (placeholders)
 
 - **`chave-ms-supplier`** (`.github/workflows/ci.yml`): em tag `v*`, faz `docker build` e
   push para o Docker Hub usando `DOCKERHUB_USERNAME` e `DOCKERHUB_TOKEN`.
