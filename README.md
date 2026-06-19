@@ -58,7 +58,7 @@ Veja `.env.example`. Principais:
 | `SNS_TOPIC_ARN` | — | tópico de destino |
 | `AWS_ENDPOINT` / `AWS_DEFAULT_REGION` | `http://localhost:4566` / `us-east-1` | Ministack/AWS |
 
-### RBAC com degrade gracioso
+### RBAC 
 
 O Auth de referência emite JWT só com `{ sub, email }` (sem roles). O guard lê roles de
 um claim configurável **ou** de header do gateway. Com `RBAC_ENFORCE=false` (default), na
